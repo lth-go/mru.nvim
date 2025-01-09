@@ -22,6 +22,7 @@ local M = {
       "^%.git/",
       "/%.git/",
     },
+    enable_autocmd = true,
   },
   file = vim.fn.stdpath("data") .. "/mru",
   previous = nil,
@@ -88,6 +89,36 @@ end
 
 M.setup = function(opts)
   M.opts = vim.tbl_deep_extend("force", M.opts, opts or {})
+
+  if M.opts.enable_autocmd then
+    M.add_autocmd()
+  end
+end
+
+M.add_autocmd = function()
+  vim.api.nvim_create_autocmd("BufEnter", {
+    group = vim.api.nvim_create_augroup("mru.nvim", {}),
+    callback = function(args)
+      if not vim.api.nvim_buf_is_valid(args.buf) then
+        return
+      end
+
+      if vim.api.nvim_get_option_value("buftype", { buf = args.buf }) ~= "" then
+        return
+      end
+
+      if vim.api.nvim_get_option_value("bufhidden", { buf = args.buf }) ~= "" then
+        return
+      end
+
+      local current_file = vim.api.nvim_buf_get_name(args.buf)
+      if current_file == "" then
+        return
+      end
+
+      M.add(current_file)
+    end,
+  })
 end
 
 return {
