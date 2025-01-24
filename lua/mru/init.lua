@@ -116,6 +116,8 @@ M.add_autocmd = function()
         return
       end
 
+      current_file = vim.fn.fnamemodify(current_file, ":p")
+
       M.add(current_file)
     end,
   })
