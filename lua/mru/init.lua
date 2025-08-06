@@ -1,66 +1,37 @@
 local file = require("mru.file")
-
-local uniq_reverse = function(list)
-  local seen = {}
-  local result = {}
-
-  for i = #list, 1, -1 do
-    local item = list[i]
-    if item ~= "" and not seen[item] then
-      table.insert(result, item)
-      seen[item] = true
-    end
-  end
-
-  return result
-end
+local utils = require("mru.utils")
 
 local M = {
   opts = {
-    threshold = 500,
+    threshold = 2000,
     file_ignore_patterns = {
       "^%.git/",
       "/%.git/",
+      "/usr/",
+      "/tmp/",
     },
-    enable_autocmd = true,
   },
-  file = vim.fn.stdpath("data") .. "/mru",
+  db = vim.fn.stdpath("data") .. "/mru",
   previous = nil,
 }
 
 M.load = function()
-  local stat = file.stat(M.file)
+  local stat = file.stat(M.db)
   if stat == nil or stat.type ~= "file" then
     return {}
   end
 
-  local content = file.read_file(M.file)
+  local content = file.read_file(M.db)
   if content == nil then
     return {}
   end
 
-  local files = uniq_reverse(vim.split(content, "\n"))
-  if #files == 0 then
+  local file_paths = utils.reverse_uniq(vim.split(content, "\n"))
+  if #file_paths == 0 then
     return {}
   end
 
-  local is_sync = false
-
-  if stat.mtime.sec < (os.time() - 3600 * 3) then
-    is_sync = is_sync or true
-  end
-
-  if #files > M.opts.threshold * 2 then
-    is_sync = is_sync or true
-
-    files = vim.list_slice(files, 1, M.opts.threshold)
-  end
-
-  if is_sync then
-    M.sync(vim.fn.reverse(vim.fn.copy(files)))
-  end
-
-  return files
+  return file_paths
 end
 
 M.add = function(file_path)
@@ -80,39 +51,71 @@ M.add = function(file_path)
 
   M.previous = file_path
 
-  file.write_file_append(M.file, file_path .. "\n")
+  file.write_file_append(M.db, file_path .. "\n")
 end
 
-M.sync = function(file_paths)
-  file.write_file(M.file, table.concat(file_paths, "\n") .. "\n")
+M.sync = function()
+  local file_paths = M.load()
+  file_paths = utils.reverse(file_paths)
+
+  if #file_paths > M.opts.threshold then
+    file_paths = vim.list_slice(file_paths, 1, M.opts.threshold)
+  end
+
+  file.write_file(M.db, table.concat(file_paths, "\n") .. "\n")
 end
 
 M.setup = function(opts)
   M.opts = vim.tbl_deep_extend("force", M.opts, opts or {})
 
-  if M.opts.enable_autocmd then
-    M.add_autocmd()
-  end
+  M.add_autocmd()
+  M.run()
+end
+
+M.run = function()
+  local timer = vim.uv.new_timer()
+
+  timer:start(
+    1000 * 60 * 5,
+    1000 * 60 * 10,
+    vim.schedule_wrap(function()
+      M.sync()
+    end)
+  )
 end
 
 M.add_autocmd = function()
-  vim.api.nvim_create_autocmd("BufEnter", {
+  vim.api.nvim_create_autocmd("BufWinEnter", {
     group = vim.api.nvim_create_augroup("mru.nvim", {}),
     callback = function(args)
+      local current_win = vim.api.nvim_get_current_win()
+      if vim.api.nvim_win_get_config(current_win).relative ~= "" then
+        return
+      end
+
       if not vim.api.nvim_buf_is_valid(args.buf) then
         return
       end
 
-      if vim.api.nvim_get_option_value("buftype", { buf = args.buf }) ~= "" then
+      if vim.bo[args.buf].buftype ~= "" then
         return
       end
 
-      if vim.api.nvim_get_option_value("bufhidden", { buf = args.buf }) ~= "" then
+      if vim.bo[args.buf].bufhidden ~= "" then
+        return
+      end
+
+      if not vim.bo[args.buf].buflisted then
         return
       end
 
       local current_file = vim.api.nvim_buf_get_name(args.buf)
       if current_file == "" then
+        return
+      end
+
+      local stat = file.stat(current_file)
+      if stat == nil or stat.type ~= "file" then
         return
       end
 
@@ -125,6 +128,5 @@ end
 
 return {
   load = M.load,
-  add = M.add,
   setup = M.setup,
 }

@@ -3,7 +3,7 @@ local M = {}
 M.mru = function(opts, _)
   local current_file = vim.fs.normalize(vim.api.nvim_buf_get_name(0), { _fast = true })
   local cwd = vim.uv.cwd() .. "/"
-  local limit = opts.limit or 10
+  local limit = opts.limit or 15
 
   local files = require("mru").load()
 
